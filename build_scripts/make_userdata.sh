@@ -28,12 +28,6 @@ fi
 if [ -n "${dns_override}" ]; then
   echo 'nameserver ${dns_override}' > /etc/resolv.conf
 fi
-
-wget -O /usr/local/bin/report_print https://raw.githubusercontent.com/anshprat/puppet-reportprint/rjil-1.0/report_print.rb
-chmod +x /usr/local/bin/report_print
-wget -O /usr/local/bin/rjil-pstree https://raw.githubusercontent.com/anshprat/myFiles/master/ril/rjil-pstree
-chmod +x /usr/local/bin/rjil-pstree
-
 wget -O puppet.deb -t 5 -T 30 http://apt.puppetlabs.com/puppetlabs-release-\${release}.deb
 if [ "${env}" == "at" ]
 then
@@ -64,7 +58,7 @@ if [ -n "${python_jiocloud_source_repo}" ]; then
 fi
 if [ -n "${puppet_modules_source_repo}" ]; then
   apt-get install -y git
-  time git clone ${puppet_modules_source_repo} /tmp/rjil
+  git clone ${puppet_modules_source_repo} /tmp/rjil
   if [ -n "${puppet_modules_source_branch}" ]; then
     pushd /tmp/rjil
     git checkout ${puppet_modules_source_branch}
@@ -96,21 +90,19 @@ if [ -n "${puppet_modules_source_repo}" ]; then
   else
     time librarian-puppet install --puppetfile=/tmp/rjil/Puppetfile --path=/etc/puppet/modules.overrides
   fi
-  cat <<INISETTING | puppet apply --config_version='echo settings'
+  cat <<INISETTING | puppet apply
   ini_setting { basemodulepath: path => "/etc/puppet/puppet.conf", section => main, setting => basemodulepath, value => "/etc/puppet/modules.overrides:/etc/puppet/modules" }
   ini_setting { default_manifest: path => "/etc/puppet/puppet.conf", section => main, setting => default_manifest, value => "/etc/puppet/manifests.overrides/site.pp" }
   ini_setting { disable_per_environment_manifest: path => "/etc/puppet/puppet.conf", section => main, setting => disable_per_environment_manifest, value => "true" }
 INISETTING
 else
-  time puppet apply --config_version='echo settings' -e "ini_setting { default_manifest: path => \"/etc/puppet/puppet.conf\", section => main, setting => default_manifest, value => \"/etc/puppet/manifests/site.pp\" }"
+  puppet apply -e "ini_setting { default_manifest: path => \"/etc/puppet/puppet.conf\", section => main, setting => default_manifest, value => \"/etc/puppet/manifests/site.pp\" }"
 fi
 echo 'consul_discovery_token='${consul_discovery_token} > /etc/facter/facts.d/consul.txt
 echo 'current_version='${BUILD_NUMBER} > /etc/facter/facts.d/current_version.txt
 echo 'env='${env} > /etc/facter/facts.d/env.txt
 echo 'cloud_provider='${cloud_provider} > /etc/facter/facts.d/cloud_provider.txt
-if [ -n "${slack_url}" ]; then
-  echo 'slack_url=${slack_url}' > /etc/facter/facts.d/slack_url.txt
-fi
+
 ##
 # Workaround to add the swap partition for baremetal systems, as even though
 # cloudinit is creating the swap partition, its not added to the fstab and not
@@ -124,17 +116,15 @@ fi
 while true
 do
   # first install all packages to make the build as fast as possible
-  time facter --timing
-  time puppet apply --detailed-exitcodes \`puppet config print default_manifest\` --config_version='echo packages' --tags package
+  puppet apply --detailed-exitcodes \`puppet config print default_manifest\` --tags package
   ret_code_package=\$?
   # now perform base config
-  time facter --timing
-  (echo 'File<| title == "/etc/consul" |> { purge => false }'; echo 'include rjil::jiocloud' ) | time puppet apply --config_version='echo bootstrap' --detailed-exitcodes --debug
+  (echo 'File<| title == "/etc/consul" |> { purge => false }'; echo 'include rjil::jiocloud' ) | puppet apply --detailed-exitcodes --debug
   ret_code_jio=\$?
   if [[ \$ret_code_jio = 1 || \$ret_code_jio = 4 || \$ret_code_jio = 6 || \$ret_code_package = 1 || \$ret_code_package = 4 || \$ret_code_package = 6 ]]
   then
-    echo "Puppet failed. Retrying .."
-    #   sleep 5
+    echo "Puppet failed. Will retry in 5 seconds"
+    sleep 5
   else
     break
   fi
